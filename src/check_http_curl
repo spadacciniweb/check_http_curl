@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+
+STATE_OK=0
+STATE_WARNING=1
+STATE_CRITICAL=2
+STATE_UNKNOWN=3
+
+# Default values
+URL=""
+WARN_TIME=1
+CRIT_TIME=3
+
+usage() {
+    echo "Usage: $0 -u <url> [-w warn_seconds] [-c crit_seconds]"
+    exit $STATE_UNKNOWN
+}
+
+while getopts "u:w:c:" opt; do
+    case $opt in
+        u) URL="$OPTARG" ;;
+        w) WARN_TIME="$OPTARG" ;;
+        c) CRIT_TIME="$OPTARG" ;;
+        *) usage ;;
+    esac
+done
+
+if [[ -z "$URL" ]]; then
+    usage
+fi
+
+OUTPUT=$(curl -k -o /dev/null -s -w "%{http_code} %{time_total}" "$URL")
+RET=$?
+
+if [[ $RET -ne 0 ]]; then
+    echo "CRITICAL: curl error executing request"
+    exit $STATE_CRITICAL
+fi
+
+HTTP_CODE=$(echo $OUTPUT | awk '{print $1}')
+TIME_TOTAL=$(echo $OUTPUT | awk '{print $2}')
+
+if [[ "$HTTP_CODE" -ge 400 ]]; then
+    echo "CRITICAL: HTTP $HTTP_CODE - ${TIME_TOTAL}s"
+    exit $STATE_CRITICAL
+fi
+
+RESULT="OK"
+EXIT=$STATE_OK
+
+if (( $(echo "$TIME_TOTAL > $CRIT_TIME" | bc -l) )); then
+    RESULT="CRITICAL"
+    EXIT=$STATE_CRITICAL
+elif (( $(echo "$TIME_TOTAL > $WARN_TIME" | bc -l) )); then
+    RESULT="WARNING"
+    EXIT=$STATE_WARNING
+fi
+
+echo "$RESULT: HTTP $HTTP_CODE - ${TIME_TOTAL}s | time=${TIME_TOTAL}s;;;0"
+exit $EXIT
